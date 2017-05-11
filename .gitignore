@@ -1,2 +1,5 @@
 # gdb-peda session file
 *.txt
+
+# gdb file
+*.gdb_history
