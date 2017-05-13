@@ -19,9 +19,6 @@ Release:	14.04
 Codename:	trusty
 $ gcc --version
 gcc (Ubuntu 4.8.4-2ubuntu1~14.04.3) 4.8.4
-Copyright (C) 2013 Free Software Foundation, Inc.
-This is free software; see the source for copying conditions.  There is NO
-warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 ```
 
 一般的に、printf文は次のような形式で書けます。
@@ -60,58 +57,7 @@ $ objdump -M intel -d helloworld | grep '<main>' -A13
  804843f:	90                   	nop
 ```
 
-これを見て気になったのは、ソースコードではprintfを使って文字列の表示を行ったにも関わらず0x804842dで呼ばれているのはputs関数であるという点です.
-
-<!---
-そこで、どのような関数が呼ばれているのか、つまりprintfが使われていないことを確かめるためにreadelfコマンドでシンボルテーブルを確認しました。
-
-```
-$ readelf -r helloworld
-
-Relocation section '.rel.dyn' at offset 0x290 contains 1 entries:
- Offset     Info    Type            Sym.Value  Sym. Name
-08049ffc  00000206 R_386_GLOB_DAT    00000000   __gmon_start__
-
-Relocation section '.rel.plt' at offset 0x298 contains 3 entries:
- Offset     Info    Type            Sym.Value  Sym. Name
-0804a00c  00000107 R_386_JUMP_SLOT   00000000   puts
-0804a010  00000207 R_386_JUMP_SLOT   00000000   __gmon_start__
-0804a014  00000307 R_386_JUMP_SLOT   00000000   __libc_start_main
-```
-
-やはりprintf関数は使われず、puts関数が使われているようです
--->
-
-これはコンパイラの最適化によって文字列の末尾が"\n"で終わり、フォーマット指定子が存在しない時、printfはputsに置き換えられることが原因です。しかし、今回は最適化を無効にしたはずなので、putsが呼ばれていたことに驚きました。
-
-<!---
-
-試しに、次のようなhelloworld1.cというプログラムをコンパイルしてシンボルテーブルを確認してみます。
-
-```
-$ cat helloworld1.c
-#include <stdio.h>
-
-int main(int argc, char *argv[]){
-  printf("Hello, World!");
-  return 0;
-}
-$ readelf helloworld1 -r
-
-Relocation section '.rel.dyn' at offset 0x294 contains 1 entries:
- Offset     Info    Type            Sym.Value  Sym. Name
-08049ffc  00000206 R_386_GLOB_DAT    00000000   __gmon_start__
-
-Relocation section '.rel.plt' at offset 0x29c contains 3 entries:
- Offset     Info    Type            Sym.Value  Sym. Name
-0804a00c  00000107 R_386_JUMP_SLOT   00000000   printf
-0804a010  00000207 R_386_JUMP_SLOT   00000000   __gmon_start__
-0804a014  00000307 R_386_JUMP_SLOT   00000000   __libc_start_main
-```
-
-確かにprintfが使われていることがわかります。最適化を無効にしてもgcc-4.8.8以降はputsに置き換えられるようです。
-
---->
+これを見て気になったのは、ソースコードではprintfを使って文字列の表示を行ったにも関わらず0x804842dで呼ばれているのはputs関数であるという点です.これはコンパイラの最適化によって文字列の末尾が"\n"で終わり、フォーマット指定子が存在しない時、printfはputsに置き換えられることが原因です。しかし、今回は最適化を無効にしたはずなので、putsが呼ばれていたことに驚きました。
 
 次に、フォーマット指定子を用いて以下のようなプログラムhelloargv0.cを実行してみます。
 
@@ -148,10 +94,9 @@ Dump of assembler code for function main:
    0x08048440 <+35>:	leave  
    0x08048441 <+36>:	ret    
 End of assembler dump.
-
 ```
 
-アドレス0x8048436でprintf@plt関数が呼ばれているのがわかります。これははprintfのPLT(Procedure Linkage Table)セクションのアドレスです。コンパイル時に共有ライブラリを動的リンクした場合、その関数はGOT(Global Offset Table)と呼ばれるジャンプテーブルを介して呼び出されます。これを確認するために、printf@pltの逆アセンブリ結果を確認します。この中身について調べてみます。
+アドレス0x8048436でprintf@plt関数が呼ばれているのがわかります。これはprintfのPLT(Procedure Linkage Table)のアドレスです。コンパイル時に共有ライブラリを動的リンクした場合、その関数はGOT(Global Offset Table)と呼ばれるジャンプテーブルを介して呼び出されます。これを確認するために、printf@pltの逆アセンブリ結果を確認します。この中身について調べてみます。
 
 ```
 $ disas 0x80482f0
@@ -161,6 +106,7 @@ Dump of assembler code for function printf@plt:
    0x080482fb <+11>:	jmp    0x80482e0
 End of assembler dump.
 ```
+
 1行目を見ると、0x804a00cにジャンプしているのがわかります。ライブラリの関数アドレスを保存するGOT領域を探してみると、0x804a00cを見つけることができました。
 
 ```
@@ -171,9 +117,9 @@ Relocation section '.rel.plt' at offset 0x29c contains 3 entries:
 0804a00c  00000107 R_386_JUMP_SLOT   00000000   printf
 ```
 
-これによって、ライブラリのアドレスを解決して、printfを実行しています。実際に、printf@pltの中に入っていくと、printfの関数が呼ばれるまでにいくつかの関数が呼ばれていて、レジスタでは時折"GLIB_C2.0"や"printf"などの文字列が保存されていました。これによって、ライブラリの確認と、printfの参照が行われていると考えられます。
+これによって、ライブラリのアドレスを解決して、printfを実行しています。実際に、printf@pltの中に入っていくと、printfの関数が呼ばれるまでにいくつかの関数が呼ばれていて、レジスタには時折"GLIB_C2.0"や"printf"などの文字列が保存されていました。これによって、ライブラリの確認と、printfの参照が行われているのではないかと考えられます。
 
-次に、printfの中身を確認しました。
+次に、printfの中身を確認します。
 
 ```
 $ disas printf
@@ -198,14 +144,11 @@ End of assembler dump.
 call 0xf7f2fb2bとあるので、ステップインで中に入ってみてみると、
 
 ```
-EBX: 0xf7fb3000 --> 0x1abda8
-ESP: 0xffffd44c --> 0xf7e54419 (<printf+9>:	add    ebx,0x15ebe7)
-
  0xf7f2fb2b:	mov    ebx,DWORD PTR [esp]
  0xf7f2fb2e:	ret
 ```
 
-ebxにespに退避させられたリターンアドレスを入れてretしています。ret先の命令にはadd ebx, 0x15ebe7とあるので、何らかのオフセット値を利用していることがわかります。その後に続くvprintfに引数を渡すときに、ebxからオフセット0x70を引いたアドレスを引数に渡しています。まず、0xf7fb3000の周辺がメモリマップ中でどこに位置しているのか調べ、またここで渡しているのはどんな値なのか調べてみました。
+ebxにespに退避させられたリターンアドレスを保存してretしています。ret先の命令にはadd ebx, 0x15ebe7とあるので、何らかのオフセット値を利用していることがわかります。その後に続く命令で、ebxからオフセット0x70を引いたアドレスをvfprintfの引数として渡しています。この値が何か調べるために、0xf7fb3000の周辺がメモリマップ中でどこに位置しているのか調べ、またここで渡しているのはどんな値なのか調べてみました。
 
 ```
 $ shell cat /proc/7451/maps
@@ -213,10 +156,10 @@ f7e07000-f7fb1000 r-xp 00000000 08:01 933878                             /lib/i3
 f7fb1000-f7fb3000 r--p 001aa000 08:01 933878                             /lib/i386-linux-gnu/libc-2.19.so
 f7fb3000-f7fb4000 rw-p 001ac000 08:01 933878                             /lib/i386-linux-gnu/libc-2.19.so
 $ p $ebx
-$4 = 0xf7fb3000
+$1 = 0xf7fb3000
 $ p $ebx-0x70
-$5 = 0xf7fb2f90
-$ x/xw $5
+$2 = 0xf7fb2f90
+$ x/xw $2
 f7fb2f90:	0xf7fb3d80
 $ x/xw 0xf7fb3d80
 0xf7fb3d80 <stdout>:	0xf7fb3ac0
@@ -224,7 +167,8 @@ $ x/xw 0xf7fb3ac0
 0xf7fb3ac0 <_IO_2_1_stdout_>:	0xfbad2284
 
 ```
-以上のことと、残り2つの引数はそれぞれ順に"Hello, %s\n"とargv[0]であったので、これをC言語で書き直すと`vfprintf(_IO_2_1_stdout_, "Hello, %s\n", argv[0])`と書けることがわかりました。それでは、次はvfprintf関数の中に入っていきます。ここで一度、現在どの関数の中まで入っているのかを確認しておきます。
+
+以上のことと、残り2つの引数がそれぞれ順に"Hello, %s\n"とargv[0]であることから、これをC言語で書き直すと`vfprintf(_IO_2_1_stdout_, "Hello, %s\n", argv[0])`と書けることがわかりました。それでは、次はvfprintf関数の中に入っていきます。ここで一度、現在どの関数の中まで入っているのかを確認しておきます。
 
 ```
 $ where
@@ -235,20 +179,9 @@ $ where
 #4  0x08048341 in _start ()
 ```
 
-vfprintfでもまた0xf7f2fb2bが呼び出されていました。その後、先ほどと同様にebx値が加算されていたので見てみると、先程と同じ0xf7fb3000となっていました。つまり、この一連のステップによって、ebxにlibcという,C言語の標準ライブラリがロードされているアドレスが保存されることがわかりました。
+vfprintfでもまた0xf7f2fb2bが呼び出されていました。その後、先程と同様にebx値が加算されていたので見てみると、先程と同じ0xf7fb3000となっていました。つまり、この0xf7f2fb2bを含む一連のステップによって、ebxにglibcのアドレスがロードされたアドレスが保存されることがわかりました。
 
-何度かのステップ実行の後に気づいたのですが、このプログラムのデバッグ中に何度かアドレス0x80484dcとその中身0x20001という値を見かけたので調べると、そのアドレスは`_IO_stdin_used`へのポインタになっており、.rodataセクションにありました。このセクションは、プログラム中の文字列定数やconst宣言された定数などの定数を格納するものです。.rodataセクションの中身を確認してみると、0x20001の直後に"Hello, %s\n"がありました。
-
-```
-$ x/xw $eax
-0x80484dc <_IO_stdin_used>:	0x00020001
-$ readelf -p .rodata helloargv0
-'.rodata':
-  0x080484d8 03000000 01000200 48656c6c 6f2c2025 ........Hello, %
-  0x080484e8 730a00                              s..
-```
-
-何度かレジスタに値を代入して判定を行った後、途中で判定のあとジャンプする箇所がありました。そのジャンプした先の中ではstrchrnul("Hello, %s", 0x25)が呼ばれており、ASCII文字で0x25は"%"です。つまりここではフォーマット文字列中のフォーマット指定子があれば"%"があるポインタが、フォーマット指定子がない場合は文字列末尾のヌルバイトへのポインタが帰ってきます。ここで何をしているかわかったので、先に進みたいと思います。処理を進めていくと、call DWORD PTR [eax+0xc]という関数呼び出し命令がありました。
+何度かレジスタに値を代入して判定を行った後、途中でジャンプする箇所がありました。そのジャンプした先の中ではstrchrnul("Hello, %s", 0x25)が呼ばれており、ASCII文字で0x25は"%"です。この関数は第一引数に第二引数が含まれればそのポインタが、もしなければ末尾のヌル文字のポインタを返します。つまり、これはフォーマット文字列中に最初に出てくるフォーマット記述子がどこにあるのかを調べています。ここで何をしているかわかったので、先に進みたいと思います。処理を進めていくと、call DWORD PTR [eax+0x1c]という関数呼び出し命令がありました。
 
 ```
 $ x/xw $eax+0xc
@@ -256,7 +189,7 @@ $ x/xw $eax+0xc
 $ x/wx 0xf7e76270
 0xf7e76270 <_IO_file_xsputn>:	0x57c03155
 ```
-`_IO_file_xsputn`の中でも先程同様にlibcのアドレスをレジスタに保存している処理がありました。その直後に、またstdoutをediに保存しているので、文字列出力に関係する関数であると予想できます。
+`_IO_file_xsputn`の中でも先程同様にlibcのアドレスをレジスタに保存している処理がありました。その直後にまたstdoutをediに保存しているので、文字列出力に関係する関数であると予想できます。
 
 いくつかの処理の後、また"call DWORD PTR [eax+0xc]"という関数呼び出しが行われているので、そのポインタの中身を調べてみると、`_IO_file_overflow`という関数であることがわかりました。引数とともにC言語風に書くと、`_IO_file_overflow(stdout, 0xffffffff);`という風に書けます。
 
@@ -326,41 +259,9 @@ $ x/wx $eax+0x3c
 $ x/xw 0xf7e75cf0
 0xf7e75cf0 <_IO_file_write>:	0x83565755
 ```
-引数とともに書くと、`_IO_file_write(stdout, "Hello, (argv[0])\n", 0x3c)`となります。更にこの関数の中で、`write(1, "Hello, (argv[0]),\n", 0x3c)`がよれています。更にこの中にも入っていきます。writeの内部ではcall DWORD PTR gs:0x10が呼ばれています。このgs:10はgsセグメントのオフセット10という意味ですが、ここには仮想システムコールという、システムコールを呼び出す関数である`__kernel_vsyscall`のアドレスがあります。システムコールはOSの機能呼び出しに使われる命令のことです。このことから、今呼ばれているのは`__kernel_vsyscall`であることがわかります。更に深掘っていくと、`__kernel_vsyscall`の内部でsysenterという命令が実行されています。引数として、32bitのLinux場合だとeaxはシステムコールの番号,ebxに第1引数,ecxに第2引数,edxに第3引数が渡されます。システムコール番号が4なので、今呼び出すシステムコールはwrite,writeシステムコールは引数が順にファイル記述子、バッファのアドレス、データサイズとなっており、標準入出力stdoutは1に対応しているので、ここで標準出力に出力されます。
+引数とともに書くと、`_IO_file_write(stdout, "Hello, (argv[0])\n", 0x3c)`となります。更にこの関数の中で、`write(1, "Hello, argv[0],\n", 0x3c)`がよれています。更にこの中にも入っていきます。writeの内部ではcall DWORD PTR gs:0x10が呼ばれています。このgs:10はgsセグメントのオフセット10という意味ですが、ここには仮想システムコールという、システムコールを呼び出す関数である`__kernel_vsyscall`のアドレスがあります。システムコールはOSの機能呼び出しに使われる命令のことです。このことから、今呼ばれているのは`__kernel_vsyscall`であることがわかります。更に深掘っていくと、`__kernel_vsyscall`の内部でsysenterという命令が実行されています。引数として、32bitのLinux場合だとeaxはシステムコールの番号,ebxに第1引数,ecxに第2引数,edxに第3引数が渡されます。システムコール番号が4なので、今呼び出すシステムコールはwrite,writeシステムコールは引数が順にファイル記述子、バッファのアドレス、データサイズとなっており、標準入出力stdoutは1に対応しているので、ここで標準出力に出力されます。
 
 ```
 $ ni
 Hello, /home/ubuntu/Projects/AnalysingPrintf/src/helloargv0
-```
-
-
-あれ、システムコールにぶつからないまま正常に終了しちゃったので、明日はその続きからやります〜〜
-
-```
-$ disas _IO_do_write
-Dump of assembler code for function _IO_do_write:
-   0xf7f316f0 <+0>:	push   esi
-   0xf7f316f1 <+1>:	xor    eax,eax
-   0xf7f316f3 <+3>:	sub    esp,0x18
-   0xf7f316f6 <+6>:	mov    esi,DWORD PTR [esp+0x28]
-   0xf7f316fa <+10>:	test   esi,esi
-   0xf7f316fc <+12>:	je     0xf7f31718 <_IO_do_write+40>
-   0xf7f316fe <+14>:	mov    edx,DWORD PTR [esp+0x24]
-   0xf7f31702 <+18>:	mov    eax,DWORD PTR [esp+0x20]
-   0xf7f31706 <+22>:	mov    DWORD PTR [esp],esi
-   0xf7f31709 <+25>:	call   0xf7f30c40
-   0xf7f3170e <+30>:	cmp    esi,eax
-   0xf7f31710 <+32>:	setne  al
-   0xf7f31713 <+35>:	movzx  eax,al
-   0xf7f31716 <+38>:	neg    eax
-   0xf7f31718 <+40>:	add    esp,0x18
-   0xf7f3171b <+43>:	pop    esi
-   0xf7f3171c <+44>:	ret    
-End of assembler dump.
-```
-
-たぶん何回かやりなおしてるので、そのとき毎にポインタが変わってる！
-```
-$ x/wx 0xf7fb3ac0
-0xf7fb3ac0 <_IO_2_1_stdout_>:	0xfbad2a84
 ```
